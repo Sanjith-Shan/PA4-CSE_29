@@ -6,16 +6,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 // You may not include additional header files.
-
 #include "pish_history.h"
 #define MAX_COMMAND_LENGTH 256
-
 /*
  * Script mode flag. If set to 0, the shell reads from stdin. If set to 1,
  * the shell reads from a file from argv[1].
  */
 static int script_mode = 0;
-
+/*
+ * Previous working directory for cd -.
+ */
+static char *prev_dir = NULL;
 /*
  * Prints a prompt IF NOT in script mode (see script_mode global flag).
  */
@@ -32,12 +33,10 @@ void prompt(void) {
         free(working_dir);
     }
 }
-
 void usage_error(void) {
     fprintf(stderr, "pish: Usage error\n");
     fflush(stderr);
 }
-
 /*
  * Break down a line of input by whitespace, and put the results into
  * a struct pish_arg to be used by other functions.
@@ -46,9 +45,15 @@ void usage_error(void) {
  * @param arg       Broken down args will be stored here
  */
 void parse_command(char *command, struct pish_arg *arg) {
-    // TODO
+    arg->argc = 0;
+    char *token = strtok(command, " \t\n");
+    while (token != NULL && arg->argc < MAX_ARGC - 1) {
+        arg->argv[arg->argc] = token;
+        arg->argc++;
+        token = strtok(NULL, " \t\n");
+    }
+    arg->argv[arg->argc] = NULL;
 }
-
 /*
  * Run a command.
  *
@@ -59,9 +64,70 @@ void parse_command(char *command, struct pish_arg *arg) {
  * If NOT in script mode, add the command to history file.
  */
 void run(struct pish_arg *arg) {
-    // TODO
-}
+    if (arg->argc == 0) {
+        return;
+    }
 
+    if (!script_mode) {
+        add_history(arg);
+    }
+
+    if (strcmp(arg->argv[0], "exit") == 0) {
+        if (arg->argc != 1) {
+            usage_error();
+            return;
+        }
+        free(prev_dir);
+        exit(EXIT_SUCCESS);
+    } else if (strcmp(arg->argv[0], "cd") == 0) {
+        if (arg->argc != 2) {
+            usage_error();
+            return;
+        }
+        char *current = getcwd(NULL, 0);
+        if (strcmp(arg->argv[1], "-") == 0) {
+            if (prev_dir == NULL) {
+                printf("%s\n", current);
+            } else {
+                printf("%s\n", prev_dir);
+                if (chdir(prev_dir) != 0) {
+                    perror("cd");
+                    free(current);
+                    return;
+                }
+            }
+        } else {
+            if (chdir(arg->argv[1]) != 0) {
+                perror("cd");
+                free(current);
+                return;
+            }
+        }
+        free(prev_dir);
+        prev_dir = current;
+    } else if (strcmp(arg->argv[0], "history") == 0) {
+        if (arg->argc == 1) {
+            print_history();
+        } else if (arg->argc == 2 && strcmp(arg->argv[1], "-c") == 0) {
+            clear_history();
+        } else {
+            usage_error();
+        }
+    } else {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            return;
+        }
+        if (pid == 0) {
+            execvp(arg->argv[0], arg->argv);
+            perror(arg->argv[0]);
+            exit(EXIT_FAILURE);
+        } else {
+            wait(NULL);
+        }
+    }
+}
 /*
  * The main loop of pish. Repeat until the "exit" command or EOF:
  * 1. Print the prompt
@@ -71,12 +137,22 @@ void run(struct pish_arg *arg) {
  * Assume that each command never exceeds MAX_COMMAND_LENGTH-1 chars.
  */
 int pish(FILE *fp) {
-    // TODO
+    char command[MAX_COMMAND_LENGTH];
+    struct pish_arg arg;
+
+    while (1) {
+        prompt();
+        if (fgets(command, MAX_COMMAND_LENGTH, fp) == NULL) {
+            free(prev_dir);
+            exit(EXIT_SUCCESS);
+        }
+        parse_command(command, &arg);
+        run(&arg);
+    }
     return 0;
 }
-
 /*
- * The entry point of the pish program.
+ * The entry point of pish program.
  *
  * - If the program is called with no additional arguments (like "./pish"),
  *   process commands from stdin.
@@ -86,6 +162,20 @@ int pish(FILE *fp) {
  * - If there are more arguments, call usage_error() and exit with status 1.
  */
 int main(int argc, char *argv[]) {
-    // TODO
+    if (argc == 1) {
+        pish(stdin);
+    } else if (argc == 2) {
+        script_mode = 1;
+        FILE *fp = fopen(argv[1], "r");
+        if (fp == NULL) {
+            perror(argv[1]);
+            return EXIT_FAILURE;
+        }
+        pish(fp);
+        fclose(fp);
+    } else {
+        usage_error();
+        return EXIT_FAILURE;
+    }
     return EXIT_SUCCESS;
 }
