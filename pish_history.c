@@ -4,11 +4,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-
 #include "pish_history.h"
-
 static char pish_history_path[1024] = {'\0'};
-
 /*
  * Set history file path to ~/.pish_history.
  */
@@ -17,7 +14,6 @@ static void set_history_path() {
     strncpy(pish_history_path, home, 1024);
     strcat(pish_history_path, "/.pish_history");
 }
-
 /*
  * Append the command represented by the given struct pish_arg to the history
  * file at pish_history_path. Separate argv values using a single space.
@@ -26,9 +22,20 @@ void add_history(const struct pish_arg *arg) {
     if (!(*pish_history_path)) {
         set_history_path();
     }
-    // TODO
+    FILE *fp = fopen(pish_history_path, "a");
+    if (fp == NULL) {
+        perror(pish_history_path);
+        return;
+    }
+    for (int i = 0; i < arg->argc; i++) {
+        if (i > 0) {
+            fprintf(fp, " ");
+        }
+        fprintf(fp, "%s", arg->argv[i]);
+    }
+    fprintf(fp, "\n");
+    fclose(fp);
 }
-
 /*
  * Print the contents of the file at pish_history_path with line numbers.
  * Each line of output should consist of the line number, a space, and the
@@ -46,9 +53,18 @@ void print_history() {
     if (!(*pish_history_path)) {
         set_history_path();
     }
-    // TODO
+    FILE *fp = fopen(pish_history_path, "r");
+    if (fp == NULL) {
+        return;
+    }
+    char line[1024];
+    int count = 1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        printf("%d %s", count, line);
+        count++;
+    }
+    fclose(fp);
 }
-
 /*
  * Clear the contents of the file at pish_history_path.
  */
@@ -56,5 +72,8 @@ void clear_history() {
     if (!(*pish_history_path)) {
         set_history_path();
     }
-    // TODO
+    FILE *fp = fopen(pish_history_path, "w");
+    if (fp != NULL) {
+        fclose(fp);
+    }
 }
